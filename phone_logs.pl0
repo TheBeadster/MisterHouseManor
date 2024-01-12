@@ -1,0 +1,118 @@
+# Category=Phone
+
+
+
+
+
+                                # Show phone logs via a popup or web page
+$v_phone_log  = new  Voice_Cmd 'Display recent [incoming,outgoing,] phone calls';
+$v_phone_log -> set_info('Show recent phone calls.');
+
+my $phone_dir = "$config_parms{data_dir}/phone";
+if ($state = said $v_phone_log) {
+    display text =>  &phone_log('in', 999, 'text'), font => 'fixed' if $state eq 'incoming' or $state eq ' ';
+    display text =>  &phone_log('out',999, 'text'), font => 'fixed' if $state eq 'outgoing' or $state eq ' ';
+}
+
+                                # This function returns phone logs to menus
+sub phone_log {
+    my ($log, $count, $format) = @_;
+    $count = 9 unless $count;
+    $log = 'callerid' if $log eq 'in';
+    $log = 'phone'    if $log eq 'out';
+    my @members = &read_phone_logs1($log);
+    my @calls   = &read_phone_logs2($count, @members);
+    $format = $Menus{response_format} unless $format;
+	print_log" $format $log log @calls";
+    return &menu_format_list($format, "$log log", @calls);
+}
+
+                                # This function will read the members in the phone log dir
+sub read_phone_logs1 { 
+
+    my ($file_qual) = @_;
+                               # Read directory for list of detailed phone logs ... default to the lastest one. 
+    opendir(DIR, "$phone_dir/logs") or die "Could not open directory $phone_dir/logs: $!\n"; 
+    my @members  = readdir(DIR); 
+    # Default to just the latest 2 members 
+    @members = reverse sort grep(/$file_qual.*\.log$/, @members);
+    return ($members[0], $members[1]) ; 
+}
+
+                                # This function will read in or out phone logs and return
+                                # a list array of all the calls.
+my %callerid_by_number;
+sub read_phone_logs2 { 
+    my ($count1, @files) = @_;
+                                # Sort by date, so most recent file is first
+    my (@calls);
+    my $count2 = 1;
+    print "Reading @files\n";
+    for my $log_file (@files) { 
+#       print "db lf=$log_file\n";
+        $log_file = "$phone_dir/logs/$log_file";
+        open(DAT1,$log_file) or print_log "Error, could not open file $log_file: \n"; 
+	binmode DAT1;       # In case bad (binary) data is logged 
+	my @a = reverse <DAT1>;
+        while ($_ = shift @a) { 
+            tr/\x20-\x7e//cd; # Translate bad characters or else TK will mess up 
+            my($time_date, $numberphLog, $name,$ans,$dur);
+	    # get different number formats
+	    # 01234 123456 first then 0161 234 1234 then no number ie witheld etc
+if ($log_file=~/callerid/){
+	
+	    if ($_=~ /(.{21}) (\d\d\d\d\d) (\d\d\d\d\d\d) name=(.+) a=(\w) d=(.+)/){ 
+		$time_date=$1;
+		$numberphLog=$2.$3;
+		$name = $4;
+		$ans=$5;
+		$dur=$6
+	}
+	elsif ($_=~/(.{21}) (\d\d\d\d) (\d\d\d) (\d\d\d\d) name=(.+) a=(\w) d=(.+)/){
+		$time_date=$1;
+		$numberphLog=$2.$3.$4;
+		$name=$5;
+		$ans=$6;
+		$dur=$7
+	}
+		elsif ($_=~/(.{21}) (\d+) name=(.+) a=(\w) d=(.+)/){
+		$time_date=$1;
+		$numberphLog=$2;
+		$name=$3;
+		$ans=$4;
+		$dur=$5
+	}
+	elsif ($_=~/(\S{3} \S{8} \S{8}) (.+) name=(.+) a=(\w) d=(.+)/){
+		$time_date=$1;
+		$numberphLog=$2;
+		$name=$3;
+		$ans=$4;
+		$dur=$5
+	}
+	
+}
+elsif ($_=~/(.+?) (\d+) name=(.+) a=(\w) d=(.+)/){
+		$time_date=$1;
+		$numberphLog=$2;
+		$name=$3;
+		$ans=$4;
+		$dur=$5
+	}
+	
+	
+	next unless $numberphLog;
+	$name="Name=".$name." a=$ans d=$dur";
+            my($day, $date, $time) = split ' ', $time_date;
+            $time = time_to_ampm $time;
+            if ($count1 < 10) {
+                push @calls, sprintf("%s %s\n %s\n %s",  $day, $time, $numberphLog,$name);
+            }
+            else {
+                push @calls, sprintf("%20s %-12s %s",  $time_date, $numberphLog, $name);
+            }
+            last if ++$count2 > $count1;
+        }# end of while 
+    }
+    print "Read ", scalar @calls, " calls\n";
+    return @calls;
+}

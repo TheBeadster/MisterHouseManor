@@ -1,0 +1,127 @@
+# category=power
+#
+#
+$CodeTimings::CodeTimings{'ElectricUse Start'} = time();
+
+
+#@ this reads in the xml data from the "Current Cost" electric reader and saves it to graphs 
+#@ that can be viewed on the website 'not anymore'
+#@ and put's the consumption on the tagline
+#@ the current cost COm port is set in mh.private.ini
+#
+#   by beady Jan 2010
+#
+#
+#   this need adding to the Mh.ini file
+#
+#   serial1_port=COM7
+#   serial1_baudrate=57600
+#   serial1_handshake=none
+#
+
+
+
+my ($EnergyMeter,$XML_in,$WattsNow,$WattsToday,$LastReadTime,$CC_Time,$CC_Temperature,$CC_Power,$CC_Model);
+my ($TimeDiffSecs,$TempTime);
+
+$EnergyMeter = new Serial_Item(undef,undef,'serial1');
+
+
+$Timer_Check_Current_cost_alive = new Timer;
+
+if ($Reload or $Startup) {
+	$LastReadTime = 0;
+	$WattsToday=0;
+	set $Timer_Check_Current_cost_alive 60,sub{
+		set $EnergyUsedNow '0'
+	}; 
+
+}
+
+if ($New_Day){
+	$LastReadTime = 0;
+	$WattsToday=0
+
+}
+
+#see if theres anything in the buffer
+#should be
+=begin
+
+<msg>
+<src>CC128-v0.11</src>
+<dsb>00252</dsb>
+<time>01:49:15</time>
+<tmpr>17.2</tmpr>
+<sensor>0</sensor>
+<id>01305</id>
+<type>1</type>
+<ch1>  <watts>01024</watts>   </ch1>
+</msg>
+
+
+
+
+
+=cut
+
+if ($XML_in = said $EnergyMeter) {
+
+   #regex it with <msg>(.*)</msg>
+   print_log "Energy meter Raw XML in ".$XML_in if $Debug{'Electric_Kw'};
+   if ($XML_in =~/<msg><src>(.*)<\/src>.*<time>(.*)<\/time><tmpr>(.*)<\/tmpr>.*<watts>(.*)<\/watts>.*<\/msg>/){
+		#$CC_time,$CC_Temperature,$CC_power,$CC_mode
+		$CC_Model=$1;
+		$CC_Time=$2;
+		$CC_Temperature=$3;
+		$CC_Power=$4;
+
+		print_log "Model $CC_Model  time $CC_Time  temp node 0 $CC_Temperature power $CC_Power Watts" if $Debug{'ElecticKw'};
+
+		#reset the error checker
+		set $Timer_Check_Current_cost_alive 60 ,sub{set $EnergyUsedNow '0'};
+
+		$TempTime = (($1*3600)+($2*60)+$3) if $CC_Time =~ /(\d\d):(\d\d):(\d\d)/;
+		$TimeDiffSecs = $TempTime  - $LastReadTime;
+		if ($TimeDiffSecs ne 0 and $LastReadTime ne 0 ){
+
+			# must be a valid close read work out how much power used
+			#
+			#  (timediff of lastreadtime and CC_time)
+		
+			
+			$WattsToday=$WattsToday+((($CC_Power/1000)/3600)* $TimeDiffSecs);
+			# print_log "$LastReadTime  : $TimeDiffSecs seconds $WattsToday running total KWh";
+			$LastReadTime= $TempTime
+		} else {
+			$LastReadTime= $TempTime;
+			#	print_log"RESET LASTREADTIME"
+		}
+
+
+		set $EnergyUsedNow $CC_Power;
+		set $EnergyUsedToday  (round $WattsToday,1);
+
+		print_log "$EnergyUsedNow Watts and $EnergyUsedToday Kwh" if $Debug{'ElecticKw'};
+   
+	}else{
+        logit("$config_parms{data_dir}/electricKW_unknown_data.log",  "$XML_in");
+	}
+
+}
+
+
+$CodeTimings::CodeTimings{'ElectricUse End'} = time();
+
+
+
+
+
+
+
+
+
+
+
+
+
